@@ -2,6 +2,7 @@
 <html>
 <head>
   <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval' blob: data: https:; img-src 'self' blob: data: https:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://fonts.gstatic.com; font-src 'self' https://fonts.gstatic.com data:; connect-src 'self' https://fonts.googleapis.com https://fonts.gstatic.com; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://fonts.googleapis.com https://fonts.gstatic.com; frame-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self';">
   <title>Bundled Page</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -51,7 +52,20 @@ document.addEventListener('DOMContentLoaded', async function() {
     const manifest = JSON.parse(manifestEl.textContent);
     let template = JSON.parse(templateEl.textContent);
 
-    const uuids = Object.keys(manifest);
+    const SAFE_MIME_PREFIXES = ['image/', 'text/css', 'application/javascript', 'application/json', 'text/plain'];
+    const SAFE_UUID_RE = /^[a-zA-Z0-9_-]{8,64}$/;
+    const safeManifest = Object.keys(manifest).reduce((acc, uuid) => {
+      const entry = manifest[uuid];
+      if (!SAFE_UUID_RE.test(uuid)) return acc;
+      if (!entry || typeof entry !== 'object') return acc;
+      const mime = typeof entry.mime === 'string' ? entry.mime : '';
+      const isAllowedMime = SAFE_MIME_PREFIXES.some((prefix) => mime.startsWith(prefix));
+      if (!isAllowedMime) return acc;
+      acc[uuid] = entry;
+      return acc;
+    }, {});
+
+    const uuids = Object.keys(safeManifest);
     setStatus('Unpacking ' + uuids.length + ' assets...');
 
     const blobUrls = {};
@@ -97,6 +111,9 @@ document.addEventListener('DOMContentLoaded', async function() {
     const extResources = extResEl ? JSON.parse(extResEl.textContent) : [];
     const resourceMap = {};
     for (const entry of extResources) {
+      if (!entry || typeof entry !== 'object') continue;
+      if (typeof entry.id !== 'string' || !/^[A-Za-z0-9_.:-]{1,128}$/.test(entry.id)) continue;
+      if (typeof entry.uuid !== 'string' || !SAFE_UUID_RE.test(entry.uuid)) continue;
       if (blobUrls[entry.uuid]) resourceMap[entry.id] = blobUrls[entry.uuid];
     }
 
